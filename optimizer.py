@@ -49,7 +49,13 @@ np.linalg.norm(x_kp1 - x_k)        epsilon (float) : width tolerance of solution
     return x_c
 
 
-def feasible_step_line_search(x_old, x_new, inequality_constraints, violation_tolerance):
+def feasible_step_line_search(
+        x_old, x_new,
+        inequality_constraints,
+        violation_tolerance,
+        max_search_iter=100,
+        search_step_size_tolerance=1e-6
+):
     """ Makes searches along the line x(t) = t*x_old + (1-t)*x_new to find a feasible solution """
 
     t_feasible = 1.  # Unadulterated new point
@@ -62,7 +68,9 @@ def feasible_step_line_search(x_old, x_new, inequality_constraints, violation_to
         if fi(line_fun(t_feasible)) > violation_tolerance:
             t_feasible = bisection_zero_search(
                 0., t_feasible,
-                lambda tau : fi(line_fun(tau))
+                lambda tau : fi(line_fun(tau)),
+                max_iter=max_search_iter,
+                epsilon=search_step_size_tolerance
             )
         else:
             continue
@@ -93,6 +101,10 @@ def numerical_gradient(func, delta_x=1e-2):
     return func
 
 
+def isaffine(func, val=True):
+    func.isaffine = val
+    return func
+
 @numerical_gradient
 def foo(x):
     return np.linalg.norm(x)
@@ -106,6 +118,7 @@ class Optimizer(ABC):
     """
     
     inequality_constraint_epsilon = 1e-6  # epsilon check of zero
+    
     gradient_stop_criteria = 1e-4  # gradient magnitude stop criteria
     
     @abstractmethod
@@ -165,7 +178,11 @@ class Optimizer(ABC):
             )
         ]
     
-    def feasible_direction(self, x : np.ndarray, search_direction : np.ndarray):
+    def feasible_direction(
+            self, x : np.ndarray,
+            search_direction : np.ndarray,
+            epsilon_back_projection=1e-2
+    ):
         """ Ensure search direction is feasible """
         
         feasible_direction = search_direction.copy()  # Assume search is initially feasible.
@@ -180,7 +197,12 @@ class Optimizer(ABC):
             direction_onto_gradient = np.dot(grad_fi, feasible_direction)
             if direction_onto_gradient > 0:
                 # Do a projection into a safe direction
-                feasible_direction -= grad_fi*direction_onto_gradient/norm_grad_fi
+                feasible_direction -= grad_fi*direction_onto_gradient/(norm_grad_fi**2)
+                if not getattr(fi, 'isaffine', False):
+                    # For non-affine inequalities, we add some direction back into the domain
+                    feasible_direction += (
+                        -epsilon_back_projection*grad_fi/norm_grad_fi
+                    )
             else:
                 # Current direction is reducing the inequality function value
                 continue
@@ -249,7 +271,18 @@ class Optimizer(ABC):
             # Note: d_k aready incorporates the magnitude of search
 
             # 3. Find feasible step in feasible direction
-            x_kp1 = self.ensure_feasible_update(x_k, x_k + d_k)
+            try:
+                x_kp1 = self.ensure_feasible_update(x_k, x_k + d_k)
+            except AssertionError:
+                results['sucess'] = False
+                results['message'] = "Feasible direction could not be found."
+                return results
+            except Exception as e:
+                results['success'] = False
+                results['messeage'] = (
+                    "Error occured trying to find a feasible search direction."
+                    + "{!s}: {!s}".format(type(e), e)
+                )
             
             # 3. Check convergence criteria
             g = self.objective_function.gradient(x_kp1)
@@ -349,6 +382,7 @@ if __name__=="__main__":
 
     fi_plane = lambda x : np.dot(plane_norm_dir, x) - plane_dist
     fi_plane.gradient = lambda x : plane_norm_dir
+    fi_plane = isaffine(fi_plane)
 
     # Objective function
     @numerical_gradient
@@ -372,6 +406,12 @@ if __name__=="__main__":
             ]
     ):
 
+        ax.scatter(
+            x0[:1], x0[1:], s=14**2., color='c', marker='.',
+            label=('Starting Points' if flag_trajectory_label else '_'),
+            zorder=3
+        )
+        
         result = opt_grad.optimize(x0, max_iter=200)
         xh = result['xh']
         
@@ -379,6 +419,13 @@ if __name__=="__main__":
             xh[:,0], xh[:,1], color='b', linewidth=2.,
             label=("Trajectories" if flag_trajectory_label else "_")
         )
+
+        ax.scatter(
+            xh[-1,:1], xh[-1,1:], s=12**2., color='c', marker='h',
+            label=('Stopping Points' if flag_trajectory_label else '_'),
+            zorder=3
+        )
+        
         flag_trajectory_label = False
 
     # Add in constraints
@@ -396,6 +443,6 @@ if __name__=="__main__":
         label="Half Space Constraint", color='r', linewidth=2.
     )
 
-    ax.legend()
+    ax.legend(framealpha=1.)
     plt.show()
         
