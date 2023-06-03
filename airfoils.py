@@ -139,3 +139,9 @@ class NACA4Series:
 
     def curvature(self, x, c):
         return c*self.curvature_unit_chord(x, self._t)
+    
+    def center_x(self,c): #distance from leading edge to the center of area
+        return c*self._unit_chord_x_area
+    
+    def center_maxt(self,c): # distance from center of area to point of maximum thickness along the x axis
+        return c*(self._unit_chord_x_area-0.3)
