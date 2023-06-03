@@ -40,5 +40,5 @@ b.change_element(e,Ix[e],Iy[e],Iz[e],D[e],Area[e],C[e],r[e],theta[e],a.principle
 p=0
 b.change_point(yp[e,p],zp[e,p])
 
-print(b.von_mises())
-print(b.strain())
+print(b.von_mises_lmi())
+print(b.strain_lmi())

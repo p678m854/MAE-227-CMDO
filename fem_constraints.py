@@ -69,7 +69,7 @@ class constraints:
         constraints.K_inv=K_inv
         
 
-    def von_mises(self):
+    def von_mises_lmi(self):
         n=constraints.n
         Ix=constraints.Ix
         Iy=constraints.Iy
@@ -110,7 +110,7 @@ class constraints:
         M[2,2]=self.sigma_v**2
         return M
     
-    def strain(self):
+    def strain_lmi(self):
         f=constraints.f
         K_inv=constraints.K_inv
         A_=np.concatenate((np.zeros((5,(self.n_elements-1)*5)),np.identity(5)),axis=1)
