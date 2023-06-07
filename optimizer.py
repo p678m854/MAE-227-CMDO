@@ -348,6 +348,48 @@ class GradientOptimizer(Optimizer):
             return -self.learning_rate*self.objective_function.gradient(x)
         else:
             return -self.learning_rate @ self.objective_function.gradient(x)
+class NesterovOptimizer(Optimizer):
+    """ Nesterov's Accelerated Gradient Descent Algorithm """
+
+    def __init__(
+            self,
+            objective_function,
+            learning_rate,
+            momentum,
+            inequality_constraints=list()
+    ):
+        self.learning_rate = learning_rate
+        self.momentum = momentum
+        self.objective_function = objective_function
+        self.inequality_constraints = inequality_constraints
+        self.previous_direction = None
+
+    @property
+    def learning_rate(self):
+        return self.__learning_rate
+
+    @learning_rate.setter
+    def learning_rate(self, val):
+        self.__learning_rate = val
+
+    @property
+    def momentum(self):
+        return self.__momentum
+
+    @momentum.setter
+    def momentum(self, val):
+        self.__momentum = val
+
+    def search_direction(self, x, *args, **kwargs):
+        n_iter = kwargs.get("n_iter", 'not passed')  # Not necessary here but an example of kwargs
+        if self.previous_direction is None:
+            self.previous_direction = -self.learning_rate * self.objective_function.gradient(x)
+            return self.previous_direction
+        else:
+            current_direction = -self.learning_rate * self.objective_function.gradient(x) + \
+                                self.momentum * self.previous_direction
+            self.previous_direction = current_direction
+            return current_direction
 
     @classmethod
     def _function_has_gradient(cls, f):
@@ -364,8 +406,8 @@ class GradientOptimizer(Optimizer):
             return True
         else:
             raise ValueError("Constraint function must have a defined gradient.")
-
-
+    
+            
 if __name__=="__main__":
     
     # Construct the constraints
@@ -445,4 +487,6 @@ if __name__=="__main__":
 
     ax.legend(framealpha=1.)
     plt.show()
-        
+    
+    # Example for Nesterov accelerated gradient
+    
