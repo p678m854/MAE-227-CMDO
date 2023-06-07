@@ -43,30 +43,30 @@ class constraints:
             K0: local stifness matrix
         """
        
-        self.n_elements=n_elements
-        self.n_nodes=n_elements + 1
-        self.sigma_v=sigma_v
-        self.u_max=u_max
+        self.n_elements = n_elements
+        self.n_nodes = n_elements + 1
+        self.sigma_v = sigma_v
+        self.u_max = u_max
 
     def change_point(self,yp,zp):
         constraints.yp=yp
         constraints.zp=zp
     
     def change_element(self,n,Ix,Iy,Iz,D,Area,C,r,theta,K0):
-        constraints.n=n
-        constraints.Ix=Ix
-        constraints.Iy=Iy
-        constraints.Iz=Iz
-        constraints.D=D
-        constraints.Area=Area
-        constraints.C=C
-        constraints.r=r
-        constraints.theta=theta
-        constraints.K0=K0
+        constraints.n = n
+        constraints.Ix = Ix
+        constraints.Iy = Iy
+        constraints.Iz = Iz
+        constraints.D = D
+        constraints.Area = Area
+        constraints.C = C
+        constraints.r = r
+        constraints.theta = theta
+        constraints.K0 = K0
 
     def change_iteration(self,f,K_inv):
-        constraints.f=f
-        constraints.K_inv=K_inv
+        constraints.f = f
+        constraints.K_inv = K_inv
         
 
     def von_mises_lmi(self):
@@ -88,14 +88,17 @@ class constraints:
         An[:,n*5:n*5+10]=np.identity(10)
         Au=np.concatenate((np.zeros((5,(self.n_nodes-1)*5)),np.identity((self.n_nodes-1)*5)))
 
-        R_0=np.array([[np.cos(theta) ,-np.sin(theta),0 ,0             ,0            ],
-                    [np.sin(theta),np.cos(theta),0 ,0             ,0            ],
-                    [0             ,0            ,1 ,0             ,0            ],
-                    [0             ,0            ,0 ,np.cos(theta) ,-np.sin(theta)],
-                    [0             ,0            ,0 ,np.sin(theta),np.cos(theta)]],dtype='f')
-        R=np.zeros([10,10],dtype='f')
-        R[0:5,0:5]=R_0
-        R[5:10,5:10]=R_0
+        R_0=np.array(
+            [[np.cos(theta),-np.sin(theta), 0, 0             , 0            ],
+             [np.sin(theta), np.cos(theta), 0, 0             , 0            ],
+             [0            , 0            , 1, 0             , 0            ],
+             [0            , 0            , 0, np.cos(theta) ,-np.sin(theta)],
+             [0            , 0            , 0, np.sin(theta) , np.cos(theta)]],
+            dtype='f'
+        )
+        R = np.zeros([10,10],dtype='f')
+        R[:5,:5] = R_0
+        R[5:10,5:10] = R_0
 
         tau_coef=((1/(4*Ix))+(4/(Area*C**2)))*( D/(1+( (np.pi**2*D**4)/(16*Area**2) ) ) )*(1+0.15*( ((np.pi**2*D**4)/(16*Area**2))-(D/(2*r))  ))
 

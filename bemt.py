@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 """
+Brief: Blade Element Momentum Theory Code
 """
 
 
@@ -83,6 +84,16 @@ def incremental_profile_nondimensional_power_coefficient(
 def incremental_2D_lift_coefficient(r_vec, theta_vec, lambda_vec, C_l_alpha_vec):
     return C_l_alpha_vec*(theta_vec - lambda_vec/r_vec)
 
+def incremental_blade_quarter_chord_pitching_coefficient(
+        r_vec, C_m_c4_alpha_vec, lambda_vec, theta_vec, sigma_vec, Nb
+):
+    """
+        d M_x_{c/4} = (1/2*rho*V**2)*(c**2)*(c_{m_{c/4_{\alpha}}} \alpha)
+        nondimensionalize by (rho*A*V_tip**2*R)
+    """
+    alpha_r_vec = theta_vec*r_vec - lambda_vec
+    return 0.5*np.pi/(Nb*Nb)*sigma_vec*sigma_vec*(C_m_c4_alpha_vec*alpha_r_vec)*r_vec*r_vec
+
 def calculate_blade_thrust(
     r_vec, theta_vec, C_l_alpha_vec, sigma_vec, delta_r_vec,
     lambda_c=0., flag_tip_effects=False, Nb=2, r_hub=0.
@@ -135,16 +146,24 @@ def calculate_blade_power(
     r_vec, theta_vec, sigma_vec, delta_r_vec, dCT_dr_vec, lambda_vec, C_d_0_vec, d_1_vec, d_2_vec
 ):
     # Find power from inflow and thrust
-    C_P_i_vec = incremental_induced_nondimensional_power_coefficient(lambda_vec, dCT_dr_vec)
-    C_P_0_vec = incremental_profile_nondimensional_power_coefficient(
+    dCPi_dr_vec = incremental_induced_nondimensional_power_coefficient(lambda_vec, dCT_dr_vec)
+    dCP0_dr_vec = incremental_profile_nondimensional_power_coefficient(
         r_vec, C_d_0_vec, d_1_vec, d_2_vec, lambda_vec, theta_vec, sigma_vec
     )
-    C_P_vec = C_P_i_vec + C_P_0_vec
+    dCP_dr_vec = dCPi_dr_vec + dCP0_dr_vec
 
     # Integrate power
-    C_P = np.sum(C_P_vec*delta_r_vec)
+    C_P = np.sum(dCP_dr_vec*delta_r_vec)
 
-    return C_P, C_P_vec
+    return C_P, dCP_dr_vec
+
+def calculate_blade_pitching_moment(
+        r_vec, theta_vec, sigma_vec, delta_r_vec, lambda_vec, C_m_c4_alpha_vec, Nb
+):
+    dCmc4_dr = incremental_blade_quarter_chord_pitching_coefficient(
+        r_vec, C_m_c4_alpha_vec, lambda_vec, theta_vec, sigma_vec, Nb
+    )
+    return np.sum(dCmc4_dr*delta_r), dCMc4_dr
     
 
 def trim_blade_pitch(
@@ -193,6 +212,165 @@ def trim_blade_pitch(
 
     return theta_0
 
+
+def BEMTAnalysis:
+    """ Class to handle a BEMT analysis of a rotor blade for the MDO """
+
+    update_profile_attributes = [
+        'r_hub', 'n_elements'
+    ]
+
+    @classmethod
+    def dimensionalize_CT(cls, CT, rho, R, Omega):
+        return CT*rho*(np.pi*R*R)*(R*R)*(Omega*Omega)
+
+    @classmethod
+    def dimensionalize_CP(cls, CP, rho, R, Omega):
+        return CT*rho*(np.pi*R*R)*(R*R*R)*(Omega*Omega*Omega)
+
+    @classmethod
+    def dimensionalize_CQ(cls, CQ, rho, R, Omega):
+        return CT*rho*(np.pi*R*R)*(R*R*R)*(Omega*Omega)
+
+    @classmethod
+    def dimensionalize_lambda(cls, lambda_vec, R, Omega):
+        return lambda_vec*R*Omega
+
+    @classmethod
+    def dimensionalize_pitching_moment(cls, C_m_c4, rho, R, Omega):
+        return C_m_c4*rho*(np.pi*R*R)*(Omega*Omega)*(R*R*R)
+    
+    def __init__(self, n_elements, Nb=2, r_hub=0., **kargs):
+
+        self.r_hub = r_hub
+        self.Nb = Nb
+        self.n_elements = n_elements
+        self.delta_r = (1. - r_hub)/n_elements
+        self.func_kargs = kargs
+
+    @property
+    def r_vec(self):
+        return self.__r_vec
+
+    @r_vec.setter
+    def r_vec(self, val):
+        raise Exception("Unable to assign a radius vector, only for internals.")
+
+    @property
+    def delta_r(self):
+        return self.__delta_r
+
+    @delta_r.setter
+    def delta_r(self, val):
+        self.__delta_r = val
+    
+    @property
+    def r_hub(self):
+        return self.__r_hub
+
+    @r_hub.setter
+    def r_hub(self, val):
+        assert 0 <= val < 1, "Hub radius must be in [0, 1)."
+        self.__r_hub = r_hub
+        if hasattr(self, "n_elements"):
+            self.__delta_r = (1. - self.r_hub)/self.n_elements
+            self.__r_vec = np.arange(self.n_elements)*self.delta_r - 0.5*self.delta_r
+            self.delta_r_vec = np.ones(self.n_elements)*self.delta_r
+        if all([hasattr(val, attr) for attr in self.recalc_attributes]):
+            self.update_blade_profile(
+                getattr(self, "sigma_fun", None),
+                getattr(self, "theta_fun", None),
+                getattr(self, "C_l_alpha_fun", None),
+                getattr(self, "C_d_0_fun", None),
+                getattr(self, "d_1_fun", None),
+                getattr(self, "d_2_fun", None)
+            )
+
+    @property
+    def n_elements(self):
+        return self.__n_elements
+
+    @n_elements.setter
+    def n_elements(self, val):
+        self.__n_elements = val
+
+    @n_elements.setter
+    def n_elements(self, val):
+        assert val > 0 "Must have positive number of elements"
+        self.__n_elements = val
+        if hasattr(self, "r_hub"):
+            self.__delta_r = (1. - self.r_hub)/self.n_elements
+            self.__r_vec = np.arange(n_elements)*self.delta_r - 0.5*self.delta_r
+            self.delta_r_vec = np.ones(self.n_elements)*self.delta_r
+        if all([hasattr(val, attr) for attr in self.recalc_attributes]):
+            self.update_blade_profile(
+                getattr(self, "sigma_fun", None),
+                getattr(self, "theta_fun", None),
+                getattr(self, "C_l_alpha_fun", None),
+                getattr(self, "C_d_0_fun", None),
+                getattr(self, "d_1_fun", None),
+                getattr(self, "d_2_fun", None)
+            )
+
+    def update_blade_profile(
+            self,
+            sigma_fun=None, theta_fun=None,
+            C_l_alpha_fun=None,
+            C_d_0_fun=None, d_1_fun=None, d_2_fun=None
+    ):
+        """ Update the blade design 
+
+        All inputs are functions that that are single parameter functions based on r.
+
+        Args:
+            sigma_fun (Callable) : Blade solidity profile
+            C_l_alpha_fun (Callable) : Blade lift slope curve
+            C_d_0_fun (Callable) : Parasitic drag coefficient or drag at zero angle of attack.
+            d_1_fun (Callable) : Linear drag coefficient parameter function.
+            d_2_fun (Callable) : Quadratic drag coefficient parameter function.
+        """
+
+        if sigma_fun is not None:
+            self.sigma_fun = np.vectorize(sigma_fun, signature='()->()')
+            self.sigma_vec = self.sigma_fun(self.r_vec)
+        if theta_fun is not None:
+            self.thetafun = np.vectorize(theta_fun, signature='()->()')
+            self.theta_vec = self.theta_fun(self.r_vec)
+        if C_l_alpha_fun is not None:
+            self.C_l_alpha_fun = np.vectorize(c_l_alpha_fun, signature='()->()')
+            self.C_l_alpha_vec = self.c_l_alpha_fun(self.r_vec)
+        if C_d_0_fun is not None:
+            self.c_d_0_fun = np.vectorize(c_d_0_fun, signature='()->()')
+            self.c_d_0_vec = self.c_d_0_fun(self.r_vec)
+        if d_1_fun is not None:
+            self.d_1_fun = np.vectorize(d_1_fun, signature='()->()')
+            self.d_1_vec = self.d_1_fun(self.r_vec)
+        if d_2_fun is not None:
+            self.d_2_fun = np.vectorize(d_2_fun, signature='()->()')
+            self.d_2_vec = self.d_2_fun(self.r_vec)
+
+    def get_nondimensional_blade_performance(self):
+        """ Gets the relavent nondimensional blade performance """
+
+        C_T, dCT_dr, lambda_vec = calculate_blade_thrust(
+            self.r_vec, self.theta_vec, self.C_l_alpha_vec, self.sigma_vec, self.delta_r_vec,
+            **self.func_kargs
+        )
+
+        C_P, dCP_dr = calculate_blade_power(
+            self.r_vec, self.theta_vec, self.sigma_vec, self.delta_r_vec,
+            self.dCT_dr_vec, self.lambda_vec,
+            self.C_d_0_vec, self.d_1_vec, self.d_2_vec
+        )
+
+        C_M_c4, dCmc4_dr = calculate_blade_pitching_moment(
+            self.r_vec, self.theta_vec, self.sigma_vec, self.delta_r_vec,
+            lambda_vec,
+            self.C_m_c4_alpha_vec, self.Nb
+        )
+
+        return C_T, C_P, dCT_dr, dCP_dr, dCMc4_cr, lambda_vec
+            
     
 if __name__=="__main__":
 

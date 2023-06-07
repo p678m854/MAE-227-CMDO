@@ -7,6 +7,11 @@ import numpy as np
 
 
 class NACA4Series:
+    """ Class Handling NACA 4-Series airfoils. 
+
+    TODO : Currently only symmtric airfoils, change to include non-zero chamber
+
+    """
 
     # y_t(x) = 5*t*(a\sqrt{x} + b x + c x^2 + d x^3 + e x^4
     # y_t profile coefficients
@@ -15,6 +20,22 @@ class NACA4Series:
     c = -0.3516  # x^2
     d = 00.2843  # x^3
     e = -0.1015  # x^4
+
+    # Some airfoil coefficient parameters. :: NOTE :: simply linear at the moment
+    @classmethod
+    def c_l_alpha(t):
+        """ 2D lift slope curve """
+        pass
+
+    @classmethod
+    def c_d_0(t):
+        """ 2D zero angle of attack drag """
+        pass
+
+    @classmethod
+    def c_m_c4_alpha(t):
+        """ 2D pitching moment coefficient """
+        return 0. 
 
     @classmethod
     def y_u_unit_chord(cls, x, t):
@@ -33,33 +54,67 @@ class NACA4Series:
     def __init__(self, t):
         """
         Args:
-            t (float) : thickness of airfoil (xx/100. in NACA YZXX)
+            t (float) : thickness of airfoil in percent chord (xx/100. in NACA YZXX)
         """
 
-        self._t = t
+        self.t = t
 
         # Short hand the class variables
         a, b, c, d, e = NACA4Series.a, NACA4Series.b, NACA4Series.c, NACA4Series.d, NACA4Series.e
         
         """ Gather the unit chord properties """
         # Cross-sectional area
-        self._unit_chord_area = 10.*t*(
-            a*2./3. + b/2. + c/3. + d/4. + e/5.
-        )
+        self._unit_chord_area = self.__unit_chord_area(t)
 
         # X position of center of area from LE
-        self._unit_chord_x_area = (
-            10.*t*(2.*a/5. + b/3. + c/4. + d/5. + e/6.)
-        )/self._unit_chord_area
+        self._unit_chord_x_area = self.__unit_chord_x_area(t)
 
         # Bending moment of inertia about y-axis
-        self._unit_chord_Iyy = (
+        self._unit_chord_Iyy = self.__unit_chord_Iyy(t)
+
+        # Bending moment of inertia about x-axis
+        self._unit_chord_Ixx = self.__unit_chord_Ixx(t)
+
+        # Rotational Moment
+        self._unit_chord_J = self.__unit_chord_J(t)
+
+    @property
+    def t(self):
+        return self.__t
+    
+    @t.setter
+    def t(self, val):
+        assert 0.06 <= t <= 0.2, (
+            "NACA 4-series symmetric airfiols between 6 and 20 percent chord thickness."
+        )
+        self.__t = val
+        if hasattr(self, '_unit_chord_area'):
+            self._unit_chord_area = self.__unit_chord_area(self.t)
+            self._unit_chord_x_area = self.__unit_chord_x_area(self.t)
+            self._unit_chord_Iyy = self.__unit_chord_Iyy(self.t)
+            self._unit_chord_Ixx = self.__unit_chord_Ixx(self.t)
+            self._unit_chord_J = self.__unit_chord_J(self.t)
+        
+        
+    # Internal Calculators
+    def __unit_chord_area(self, t):
+        a, b, c, d, e = NACA4Series.a, NACA4Series.b, NACA4Series.c, NACA4Series.d, NACA4Series.e
+        return 10.*t*(a*2./3. + b/2. + c/3. + d/4. + e/5.)
+
+    def __unit_chord_x_area(self, t):
+        a, b, c, d, e = NACA4Series.a, NACA4Series.b, NACA4Series.c, NACA4Series.d, NACA4Series.e
+        return 10.*t*(2.*a/5. + b/3. + c/4. + d/5. + e/6.)/self._unit_chord_area
+
+    def __unit_chord_Iyy(self, t):
+        a, b, c, d, e = NACA4Series.a, NACA4Series.b, NACA4Series.c, NACA4Series.d, NACA4Series.e
+        return (
             10.*t*(2.*a/7. + b/4. + c/5. + d/6. + e/7.)  # Ixx around tip
              - self._unit_chord_area*(self._unit_chord_x_area**2)  # Correct for offset
         )
 
-        # Bending moment of inertia about x-axis
-        self._unit_chord_Ixx = 2./3.*((5*t)**3)*(
+    def __unit_chord_Ixx(self, t):
+        a, b, c, d, e = NACA4Series.a, NACA4Series.b, NACA4Series.c, NACA4Series.d, NACA4Series.e
+        return 2./3.*((5*t)**3)*(
             # one factor
             a*a*a*2./5. + b*b*b/4. + c*c*c/7. + d*d*d/10. + e*e*e/13.
             # two factors
@@ -72,10 +127,15 @@ class NACA4Series:
             + 6.*(a*b*c*2./9. + a*b*d*2./11. + a*b*e*2./13.)
             + 6.*(a*c*d*2./13. + a*c*e*2./15. + a*d*e*2./17.)
             + 6.*(b*c*d/7. + b*c*e/8. + b*d*e/9. + c*d*e/10.)
-        )
-        self._unit_chord_J = self._unit_chord_Ixx + self._unit_chord_Iyy
-
-    # Assumption: cutouts have the same profile
+        )  # Requires no offset as center of area y is on x-axis.
+    
+    def __unit_chord_J(self, t):
+        a, b, c, d, e = NACA4Series.a, NACA4Series.b, NACA4Series.c, NACA4Series.d, NACA4Series.e
+        return self.__unit_chord_Ixx(t) + self.__unit_chord_Iyy(t)
+    
+    
+    # The real airfoil with hollow interior
+    # Assumption: cutouts have the same profile as outer moldline
         
     def A(self, c):
         return c*c*self._unit_chord_area
@@ -135,13 +195,24 @@ class NACA4Series:
         )
 
     def t_max(self, c):
-        return self._t*c
+        return self.t*c
+
+    def diameter_max_inscribed_circle(self, c, t):
+        return 2.*c*t
 
     def curvature(self, x, c):
-        return c*self.curvature_unit_chord(x, self._t)
+        """ Curvature of airfoil along boundary 
+        
+        Args:
+            x (float) : Chord coordinate in fractions of a chord
+            c (float) : Chord length
+        """
+        return c*self.curvature_unit_chord(x, self.t)
     
-    def center_x(self,c): #distance from leading edge to the center of area
+    def center_x(self,c):
+        """ distance from leading edge to the center of area """
         return c*self._unit_chord_x_area
     
-    def center_maxt(self,c): # distance from center of area to point of maximum thickness along the x axis
+    def center_maxt(self,c):
+        """ distance from center of area to point of maximum thickness along the x axis """
         return c*(self._unit_chord_x_area-0.3)
