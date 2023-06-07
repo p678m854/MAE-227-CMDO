@@ -489,4 +489,76 @@ if __name__=="__main__":
     plt.show()
     
     # Example for Nesterov accelerated gradient
+    # Get the optimizer for the problem
+eta = 0.05
+momentum = 0.9
+opt_nesterov = NesterovOptimizer(f0, eta, momentum, [fi_circle, fi_plane])
+# Figure for plotting results
+fig, ax = plt.subplots(1,1)
+
+# Iterate through some starting conditions
+flag_trajectory_label = True
+for x0 in np.array(
+        [
+            [-4., 0.],
+            [-3, -3],
+            [0, 4]
+        ]
+):
+
+    ax.scatter(
+        x0[:1], x0[1:], s=14**2., color='c', marker='.',
+        label=('Starting Points' if flag_trajectory_label else '_'),
+        zorder=3
+    )
+    
+    result = opt_nesterov.optimize(x0, max_iter=200)
+    xh = result['xh']
+    
+    ax.plot(
+        xh[:,0], xh[:,1], color='b', linewidth=2.,
+        label=("Nesterov Trajectories" if flag_trajectory_label else "_")
+    )
+
+    ax.scatter(
+        xh[-1,:1], xh[-1,1:], s=12**2., color='c', marker='h',
+        label=('Stopping Points' if flag_trajectory_label else '_'),
+        zorder=3
+    )
+    
+    flag_trajectory_label = False
+
+# Add in constraints
+theta_p = np.linspace(0, 2.*np.pi)
+ax.plot(
+    circle_radius*np.cos(theta_p) + circle_center[0],
+    circle_radius*np.sin(theta_p) + circle_center[1],
+    color='k', label="Circle Constraint", linewidth=2.
+)
+
+length_p = 5.
+ax.plot(
+    length_p*np.array([-1, 1])*plane_perp_dir[0] + plane_dist*plane_norm_dir[0],
+    length_p*np.array([-1, 1])*plane_perp_dir[1] + plane_dist*plane_norm_dir[1],
+    label="Half Space Constraint", color='r', linewidth=2.
+)
+
+ax.legend(framealpha=1.)
+plt.show()
+    
+
+# Add in constraints
+theta_p = np.linspace(0, 2.*np.pi)
+ax.plot(
+    circle_radius*np.cos(theta_p) + circle_center[0],
+    circle_radius*np.sin(theta_p) + circle_center[1],
+    color='k', label="Circle Constraint", linewidth=2.
+)
+
+length_p = 5.
+ax.plot(
+    length_p*np.array([-1, 1])*plane_perp_dir[0] + plane_dist*plane_norm_dir[0],
+    length_p*np.array([-1, 1])*plane_perp_dir[1] + plane_dist*plane_norm_dir[1],
+    label="Half Space Constraint", color='r', linewidth=2.
+)
     
