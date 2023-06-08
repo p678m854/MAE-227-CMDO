@@ -81,7 +81,7 @@ def add_gradient(func, grad_func):
     func.gradient = grad_func
     return func
 
-def numerical_gradient(func, delta_x=1e-2):
+def numerical_gradient(func, delta_x=1e-4):
     def central_difference_second_order(f, x, delta_x):
         fx = f(x)
         flag_different_steps = isinstance(delta_x, Iterable)

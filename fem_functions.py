@@ -1,6 +1,6 @@
 import numpy as np
 from airfoils import NACA4Series as airfoil
-from fem import finite_element_model as FEM
+from fem import FiniteElementModel as FEM
 from fem_constraints import constraints as constraints
 
 

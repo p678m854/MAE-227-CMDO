@@ -96,7 +96,8 @@ def incremental_blade_quarter_chord_pitching_coefficient(
 
 def calculate_blade_thrust(
     r_vec, theta_vec, C_l_alpha_vec, sigma_vec, delta_r_vec,
-    lambda_c=0., flag_tip_effects=False, Nb=2, r_hub=0.
+    lambda_c=0., flag_tip_effects=False, Nb=2, r_hub=0.,
+    **kargs
 ):
 
     # Set up loop flag
@@ -143,7 +144,8 @@ def calculate_blade_thrust(
 
 
 def calculate_blade_power(
-    r_vec, theta_vec, sigma_vec, delta_r_vec, dCT_dr_vec, lambda_vec, C_d_0_vec, d_1_vec, d_2_vec
+    r_vec, theta_vec, sigma_vec, delta_r_vec, dCT_dr_vec, lambda_vec,
+    C_d_0_vec, d_1_vec, d_2_vec, **kargs
 ):
     # Find power from inflow and thrust
     dCPi_dr_vec = incremental_induced_nondimensional_power_coefficient(lambda_vec, dCT_dr_vec)
@@ -158,7 +160,7 @@ def calculate_blade_power(
     return C_P, dCP_dr_vec
 
 def calculate_blade_pitching_moment(
-        r_vec, theta_vec, sigma_vec, delta_r_vec, lambda_vec, C_m_c4_alpha_vec, Nb
+        r_vec, theta_vec, sigma_vec, delta_r_vec, lambda_vec, C_m_c4_alpha_vec, Nb, **kargs
 ):
     dCmc4_dr = incremental_blade_quarter_chord_pitching_coefficient(
         r_vec, C_m_c4_alpha_vec, lambda_vec, theta_vec, sigma_vec, Nb
@@ -229,11 +231,11 @@ class BEMTAnalysis:
 
     @classmethod
     def dimensionalize_CP(cls, CP, rho, R, Omega):
-        return CT*rho*(np.pi*R*R)*(R*R*R)*(Omega*Omega*Omega)
+        return CP*rho*(np.pi*R*R)*(R*R*R)*(Omega*Omega*Omega)
 
     @classmethod
     def dimensionalize_CQ(cls, CQ, rho, R, Omega):
-        return CT*rho*(np.pi*R*R)*(R*R*R)*(Omega*Omega)
+        return CQ*rho*(np.pi*R*R)*(R*R*R)*(Omega*Omega)
 
     @classmethod
     def dimensionalize_lambda(cls, lambda_vec, R, Omega):
@@ -376,7 +378,33 @@ class BEMTAnalysis:
         )
 
         return C_T, C_P, dCT_dr, dCP_dr, dCmc4_dr, lambda_vec
-            
+
+
+    def get_dimensional_blade_element_forces_and_moments(self):
+        """ Finds the forces and moments acting on element in rotor frame. """
+
+        Omega = self.func_kargs['Omega']
+        R = self.func_kargs['R']
+        rho = self.func_kargs['rho']
+        dCT_dr, dCP_dr, dCmc4_dr = self.get_nondimensional_blade_performance()[2:-1]
+        dT_vec = self.dimensionalize_CT(dCT_dr*self.delta_r_vec, rho, R, Omega)/self.Nb
+        dFD_vec = self.dimensionalize_CQ(dCP_dr*self.delta_r_vec, rho, R, Omega)/(
+            self.Nb*R*self.r_vec
+        )
+        dCM_vec = self.dimensionalize_pitching_moment(dCmc4_dr*self.r_vec, rho, R, Omega)
+
+        f = np.stack(
+            (
+                -dFD_vec, dT_vec, dCM_vec, np.zeros(self.n_elements), np.zeros(self.n_elements)
+            ),
+            axis=1
+        )  # Beam element [F_y, F_z, M_x, M_y, M_z]
+
+        return f
+
+        
+        
+        
     
 if __name__=="__main__":
 

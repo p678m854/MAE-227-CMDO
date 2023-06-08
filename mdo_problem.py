@@ -100,7 +100,8 @@ class RotorBladeAnalysis:
 
     struct_parameters = [
         'Iyy', 'Izz', 'J',
-        'A', 'D', 'r'
+        'A', 'D', 'r', 'yp', 'zp',
+        'theta', 'chord'
     ]
     
     class BladeSection:
@@ -130,7 +131,14 @@ class RotorBladeAnalysis:
                 self.chord, self.__airfoil.t
             )
             # TODO: figure out this radius of curvature
-            self.r = self.__airfoil.curvature(0., self.chord)
+            self.yp = np.array([
+                self.__airfoil.center_x(self.chord),
+                self.__airfoil.center_maxt(self.chord),
+                self.__airfoil.center_x(self.chord) - self.chord,
+                self.__airfoil.center_maxt(self.chord),
+            ])
+            self.zp = np.array([0., self.thickness, 0., -self.thickness])
+            self.r = self.__airfoil.curvature(0.3, self.chord)
 
         def update_aerodynamic_resultant_properties(self):
             """ These properties are a result of the defining properties """
@@ -218,7 +226,8 @@ class RotorBladeAnalysis:
 
         # Aerodynamic problem constraints
         self.rho = rho
-
+        self.Omega = Omega
+        
         # Structural problem constraints
         self.E = E  # Young's Modulus of Elasticity
         self.G = G  # Shear Modulus of Elasticity
@@ -230,10 +239,11 @@ class RotorBladeAnalysis:
         # Save the subproblems
         self.bemt = BEMTAnalysis(
             n_elements=self.n_elements, Nb=self.Nb, r_hub=self.r_profile_stations[0],
+            Omega=self.Omega, R=self.R, rho=self.rho,
             **self.aero_kargs
         )
         self.fem = FiniteElementModel(
-            n_elements=self.n_elements, E=E, G=G, rotor_length=R
+            n_elements=self.n_elements, E=self.E, G=self.G, rotor_length=self.R
         )
         
         # Get arguments for constructing the sections
@@ -293,7 +303,7 @@ class RotorBladeAnalysis:
             x *= self.R
         y = np.array([getattr(bs, section_property) for bs in self._blade_sections])
         sig = '()->(n)' if y.ndim > 1 else '()->()'
-        func = np.vectorize(interp1d(x, y), signature=sig)
+        func = np.vectorize(interp1d(x, y, axis=0), signature=sig)
         return func
         
     def update_profiles(self):
@@ -304,9 +314,10 @@ class RotorBladeAnalysis:
         self.bemt.update_blade_profile(**self.bemt.profiles)
         for prop in self.struct_parameters:
             self.fem.profiles.update({
-                '{}_func'.format(prop) : self.generate_interpolation_function(prop)
+                '{}_func'.format(prop) : self.generate_interpolation_function(prop, True)
             })
 
+            
     def update_problem_from_state_vector(self, x):
         """
         
@@ -322,7 +333,8 @@ class RotorBladeAnalysis:
 
         self.update_sections(**x_dict)
         self.update_profiles()
-            
+
+        
     def generate_section_parameter_limits(
             self, state, sections=None, lower_vals=None, upper_vals=None
     ):
@@ -541,3 +553,78 @@ if __name__=="__main__":
     """
 
     # MDO Problem
+    @numerical_gradient
+    def f_vonmises_constraint(x):
+        mdo_problem.fem.apply_profiles()
+        mdo_problem.update_problem_from_state_vector(x)
+        F_vec = mdo_problem.bemt.get_dimensional_blade_element_forces_and_moments()
+        F_vec = mdo_problem.fem.translate_aerodynamic_forces_and_moments_to_structural(F_vec)
+        sigma2 = mdo_problem.fem.critical_vonMises_stress(F_vec.reshape((F_vec.size, 1)))
+
+        return sigma2 - material_tensile_yield_stress**2
+
+    
+    # Objective function
+    @isaffine
+    def obj_minimize_weight(x):
+        c = 0.
+        i = mdo_problem.problem_params.index('thickness')
+        c += np.sum(x[i::mdo_problem.n_states_per_section])
+        i = mdo_problem.problem_params.index('skin_thickness')
+        c += np.sum(x[i::mdo_problem.n_states_per_section] ** 2)
+        return c
+
+    def obj_weight_grad(x):
+        grad = np.zeros(x.shape)
+        i = mdo_problem.problem_params.index('thickness')
+        grad[i::mdo_problem.n_states_per_section] = 1.
+        i = mdo_problem.problem_params.index('skin_thickness')
+        grad[i::mdo_problem.n_states_per_section] += 2.*x[i::mdo_problem.n_states_per_section]
+        return grad
+
+    obj_minimize_weight.gradient = obj_weight_grad
+
+    x0 = np.array([0.2, 0.03, 10./180.*np.pi, 0.01, 0.2, 0.03, 10./180.*np.pi, 0.01])
+    
+    # Test Optimization
+    fig, ax = plt.subplots(2, 1, sharey=True, sharex=True)
+    fig.set_size_inches((6.5, 4))
+    ax[0].set_position([0.1, 0.57, 0.86, 0.37])
+    ax[1].set_position([0.1, 0.11, 0.86, 0.37])
+    
+    opt_kargs = {
+        'objective_function' : obj_minimize_pitch,
+        'learning_rate' : 1e-2, # learning_rate,
+        'momentum' : momentum,
+        'inequality_constraints' : fi_affine + [fi_thrust,] + [f_vonmises_constraint]
+    }
+
+    for i, optclass in enumerate([GradientOptimizer, NesterovOptimizer]):
+
+        optimizer = optclass(**opt_kargs)
+        results = optimizer.optimize(
+            x0,
+            gradient_stop_criteria=-np.inf,
+            min_step=-np.inf
+        )
+
+        print(results)
+        
+        xh = results['xh']
+        iter_plot = np.arange(xh.shape[0])
+
+        ax[i].plot(iter_plot, xh[:,2]*180./np.pi, label='Root')
+        ax[i].plot(iter_plot, xh[:,6]*180./np.pi, label='Tip')
+
+        ax[i].set_ylabel("Pitch Angle ($\\theta$) [deg]")
+        ax[i].set_ylim(5, 15)
+
+        ax[i].grid(True, which='major', axis='both')
+
+    ax[0].set_title("Gradient Descent")
+    ax[1].set_title("Nesterov Descent")
+    ax[-1].set_xlabel("Iterations")
+    ax[-1].set_xlim(left=0, right=iter_plot[-1])
+    ax[0].legend(framealpha=1.)
+    
+    plt.show()

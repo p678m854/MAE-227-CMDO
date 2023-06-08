@@ -7,6 +7,24 @@ Brief: Simple linear finite element model for a bending beam with changing cross
 """
 
 import numpy as np
+from optimizer import numerical_gradient
+
+def max_shear_stress(Torque, Iyy, D, A, C, r):
+    return (
+        Torque*D/(1 + np.pi*np.pi*np.power(D,4.)/(16.*A*A))
+        *(0.25/Iyy + 4./(A*C))
+        *(1. + 0.15*(np.pi*np.pi*D*D*D*D/(16.*A*A) - D/(2.*r)))
+    )
+
+def RotationMatrix(theta):
+    return np.array(
+        [[np.cos(theta),-np.sin(theta), 0 , 0            , 0            ],
+         [np.sin(theta), np.cos(theta), 0 , 0            , 0            ],
+         [0            , 0            , 1 , 0            , 0            ],
+         [0            , 0            , 0 , np.cos(theta),-np.sin(theta)],
+         [0            , 0            , 0 , np.sin(theta), np.cos(theta)]],
+        dtype='f'
+    )
 
 class FiniteElementModel:
     """ Finite Element Model for Linear Structural Analysis of a Rotor Blade.
@@ -46,6 +64,137 @@ class FiniteElementModel:
 
     """
 
+    class Element:
+        """ Handles information about the elements """
+
+        def __init__(self, id_num, owner):
+            self.id_num = id_num
+            self.owner = owner
+
+            self.Iyy = 0.
+            self.Izz = 0.
+            self.J = 0.
+            self.A = 0.
+            self.D = 0.
+            self.r = 0.
+            self.theta = 0.
+            self.yp = 0.
+            self.zp = 0.
+
+        @property
+        def Iyy(self):
+            return self.__Iyy
+
+        @property
+        def Izz(self):
+            return self.__Izz
+
+        @property
+        def J(self):
+            return self.__J
+
+        @property
+        def A(self):
+            return self.__A
+
+        @property
+        def D(self):
+            return self.__D
+
+        @property
+        def r(self):
+            return self.__r
+
+        @property
+        def theta(self):
+            return self.__theta
+
+        @Iyy.setter
+        def Iyy(self, val):
+            self.__Iyy = val
+
+        @Izz.setter
+        def Izz(self, val):
+            self.__Izz = val
+
+        @J.setter
+        def J(self, val):
+            self.__J = val
+
+        @A.setter
+        def A(self, val):
+            self.__A = val
+
+        @D.setter
+        def D(self, val):
+            self.__D = val
+
+        @r.setter
+        def r(self, val):
+            self.__r = val
+
+        @theta.setter
+        def theta(self, val):
+            self.__theta = val
+
+        @property
+        def yp(self):
+            return self.__yp
+
+        @yp.setter
+        def yp(self, val):
+            self.__yp = val
+
+        @property
+        def zp(self):
+            return self.__zp
+
+        @zp.setter
+        def zp(self, val):
+            self.__zp = val
+
+        @property
+        def chord(self):
+            return self.__chord
+
+        @chord.setter
+        def chord(self, val):
+            self.__chord = val
+
+        def principle_element_stiffness_matrix(self):
+            return self.owner.principle_element_stiffnes_matrix(self.id_num)
+
+        def element_stiffness_matrix(self):
+            return self.owner.element_stiffness_matrix(self.id_num)
+
+        def max_axial_stress_magnitude(self, My, Mz):
+            return np.max(np.abs(My/self.Iyy*self.zp - Mz/self.Izz*self.yp))
+
+        def max_shear_stress(self, Mx):
+            return max_shear_stress(Mx, self.Iyy, self.D, self.A, self.chord, self.r)
+
+        def determine_forces(self, u1, u2):
+            """ Edge displacements u1 and u2 into forces and moments """
+
+            u_vec = np.hstack((u1, u2))
+            K = self.element_stiffness_matrix()
+            f_vec = K @ u_vec
+            f_vec = f_vec.reshape((2, f_vec.size//2))[0]
+
+            return f_vec
+
+        def vonMises_stress(self, f_vec):
+            
+            tau_max = self.max_shear_stress(f_vec[2])
+            sigma_max_abs = self.max_axial_stress_magnitude(*f_vec[3:])
+
+            return sigma_max_abs*sigma_max_abs + 3.*tau_max*tau_max
+
+        def displacement_to_vonMises_stress(self, u1, u2):
+            return self.vonMises_stress(self.determine_forces(u1, u2))
+
+        
+            
     @property
     def Iyy(self):
         return self.__Iyy
@@ -110,23 +259,51 @@ class FiniteElementModel:
         self.n_elements = n_elements
         self.n_nodes = n_elements + 1
         self.L = (rotor_length/n_elements)
+        self.R_vec = np.arange(self.n_elements)*self.L
         self.E = E
         self.G = G
         if Iyy is not None:
             self.Iyy = Iyy
+        else:
+            self.__Iyy = None
         if Izz is not None:
             self.Izz = Izz
+        else:
+            self.__Izz = None
         if J is not None:
             self.J = J
         if theta is not None:
             self.theta = theta
         #self.K_inv=np.zeros(((self.n_nodes-1) * 5, (self.n_nodes-1) * 5))
 
-    def change_iteration(self, Iy, Iz, J, theta):
+        # This is what we will use to 
+        self._element_list = [self.Element(i, self) for i in range(self.n_elements)]
+
+    def apply_profiles(self):
+
+        struct_parameters = [
+            'Iyy', 'Izz', 'J',
+            'A', 'D', 'r', 'yp', 'zp',
+            'theta', 'chord'
+        ]
+        for prop in struct_parameters:
+            prop_func = '{}_func'.format(prop)
+            if prop_func in self.profiles.keys():
+                
+                func = self.profiles[prop_func]
+
+                prop_vec = func(self.R_vec)
+                setattr(self, prop, prop_vec)
+            
+                for i, elm in enumerate(self._element_list):
+                    setattr(elm, prop, prop_vec[i])
+        
+    def change_iteration(self, Iy, Iz, J, theta, f):
         self.Iy = Iy
         self.Iz = Iz
         self.J = J
         self.theta = theta
+        self.f = f
         
     def principle_element_stiffness_matrix(self, element):
         Iy = self.Iyy[element]
@@ -218,14 +395,24 @@ class FiniteElementModel:
         K_inv = np.linalg.inv(K)
         return K_inv
 
+
+    def translate_aerodynamic_forces_and_moments_to_structural(self, F_aero):
+        """ Shifting a half element down and adding free pressure boundary """
+        F = F_aero.copy()
+        F[-2] = -F[2]*self.L/2.  # Added My term
+        F[-1] = F[1]*self.L/2.  # Added Mz term
+        F = np.vstack((F, np.zeros((1,) + F.shape[1:])))
+        return F[1:]
     
-    def element_stresses(self, u):
-        """ Given a displacement of the nodes, return the element stresses
+    def critical_vonMises_stress(self, f):
+        """ Returns the squared stress """
+        u = self.solve_displacement(f)
+        u = u.reshape((self.n_nodes, u.size//self.n_nodes))
 
-        This is using Bernoulli beam element theory with some additional assumptions to make
-        the 
+        stresses = np.zeros(self.n_elements)
+        for elm in self._element_list:
+            stresses[elm.id_num] = (
+                elm.displacement_to_vonMises_stress(u[elm.id_num], u[elm.id_num + 1])
+            )
 
-        Ref: 
-            [1] https://www.sesamx.io/blog/beam_finite_element/
-        """
-        pass
+        return np.max(stresses)
