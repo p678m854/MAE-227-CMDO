@@ -77,6 +77,9 @@ def feasible_step_line_search(
 
     return line_fun(t_feasible)
 
+def add_gradient(func, grad_func):
+    func.gradient = grad_func
+    return func
 
 def numerical_gradient(func, delta_x=1e-2):
     def central_difference_second_order(f, x, delta_x):
@@ -104,6 +107,19 @@ def numerical_gradient(func, delta_x=1e-2):
 def isaffine(func, val=True):
     func.isaffine = val
     return func
+
+def isaffineequality(func, val=True, **kargs):
+    if val:
+        neg_func = lambda *args, **kargs : -func(*args, **kargs)
+        neg_func.isaffine = val
+        if hasattr(func, 'gradient'):
+            neg_func.gradient = lambda *args, **kargs : -func.gradient(*args, **kargs)
+        else:
+            neg_func.gradient = numerical_gradient(neg_func, **kargs)
+        return [func, neg_func]
+    else:
+        return [func,]
+        
 
 @numerical_gradient
 def foo(x):
@@ -327,7 +343,8 @@ class GradientOptimizer(Optimizer):
             self,
             objective_function,
             learning_rate,
-            inequality_constraints=list()
+            inequality_constraints=list(),
+            **kargs
     ):
 
         self.learning_rate = learning_rate
@@ -348,7 +365,24 @@ class GradientOptimizer(Optimizer):
             return -self.learning_rate*self.objective_function.gradient(x)
         else:
             return -self.learning_rate @ self.objective_function.gradient(x)
-class NesterovOptimizer(Optimizer):
+
+    @classmethod
+    def _function_has_gradient(cls, f):
+        return hasattr(f, 'gradient')
+
+    def _is_valid_objective_function(self, f0):
+        if self._function_has_gradient(f0):
+            return True
+        else:
+            raise ValueError("Objective function must have a defined gradient.")
+
+    def _is_valid_constraint_function(self, fi):
+        if self._function_has_gradient(fi):
+            return True
+        else:
+            raise ValueError("Constraint function must have a defined gradient.")
+        
+class NesterovOptimizer(GradientOptimizer):
     """ Nesterov's Accelerated Gradient Descent Algorithm """
 
     def __init__(
@@ -364,13 +398,6 @@ class NesterovOptimizer(Optimizer):
         self.inequality_constraints = inequality_constraints
         self.previous_direction = None
 
-    @property
-    def learning_rate(self):
-        return self.__learning_rate
-
-    @learning_rate.setter
-    def learning_rate(self, val):
-        self.__learning_rate = val
 
     @property
     def momentum(self):
@@ -390,22 +417,6 @@ class NesterovOptimizer(Optimizer):
                                 self.momentum * self.previous_direction
             self.previous_direction = current_direction
             return current_direction
-
-    @classmethod
-    def _function_has_gradient(cls, f):
-        return hasattr(f, 'gradient')
-
-    def _is_valid_objective_function(self, f0):
-        if self._function_has_gradient(f0):
-            return True
-        else:
-            raise ValueError("Objective function must have a defined gradient.")
-
-    def _is_valid_constraint_function(self, fi):
-        if self._function_has_gradient(fi):
-            return True
-        else:
-            raise ValueError("Constraint function must have a defined gradient.")
     
             
 if __name__=="__main__":
@@ -490,75 +501,75 @@ if __name__=="__main__":
     
     # Example for Nesterov accelerated gradient
     # Get the optimizer for the problem
-eta = 0.05
-momentum = 0.9
-opt_nesterov = NesterovOptimizer(f0, eta, momentum, [fi_circle, fi_plane])
-# Figure for plotting results
-fig, ax = plt.subplots(1,1)
+    eta = 0.05
+    momentum = 0.9
+    opt_nesterov = NesterovOptimizer(f0, eta, momentum, [fi_circle, fi_plane])
+    # Figure for plotting results
+    fig, ax = plt.subplots(1,1)
 
-# Iterate through some starting conditions
-flag_trajectory_label = True
-for x0 in np.array(
-        [
-            [-4., 0.],
-            [-3, -3],
-            [0, 4]
-        ]
-):
+    # Iterate through some starting conditions
+    flag_trajectory_label = True
+    for x0 in np.array(
+            [
+                [-4., 0.],
+                [-3, -3],
+                [0, 4]
+            ]
+    ):
 
-    ax.scatter(
-        x0[:1], x0[1:], s=14**2., color='c', marker='.',
-        label=('Starting Points' if flag_trajectory_label else '_'),
-        zorder=3
-    )
+        ax.scatter(
+            x0[:1], x0[1:], s=14**2., color='c', marker='.',
+            label=('Starting Points' if flag_trajectory_label else '_'),
+            zorder=3
+        )
     
-    result = opt_nesterov.optimize(x0, max_iter=200)
-    xh = result['xh']
+        result = opt_nesterov.optimize(x0, max_iter=200)
+        xh = result['xh']
     
+        ax.plot(
+            xh[:,0], xh[:,1], color='b', linewidth=2.,
+            label=("Nesterov Trajectories" if flag_trajectory_label else "_")
+        )
+        
+        ax.scatter(
+            xh[-1,:1], xh[-1,1:], s=12**2., color='c', marker='h',
+            label=('Stopping Points' if flag_trajectory_label else '_'),
+            zorder=3
+        )
+    
+        flag_trajectory_label = False
+
+    # Add in constraints
+    theta_p = np.linspace(0, 2.*np.pi)
     ax.plot(
-        xh[:,0], xh[:,1], color='b', linewidth=2.,
-        label=("Nesterov Trajectories" if flag_trajectory_label else "_")
+        circle_radius*np.cos(theta_p) + circle_center[0],
+        circle_radius*np.sin(theta_p) + circle_center[1],
+        color='k', label="Circle Constraint", linewidth=2.
     )
 
-    ax.scatter(
-        xh[-1,:1], xh[-1,1:], s=12**2., color='c', marker='h',
-        label=('Stopping Points' if flag_trajectory_label else '_'),
-        zorder=3
+    length_p = 5.
+    ax.plot(
+        length_p*np.array([-1, 1])*plane_perp_dir[0] + plane_dist*plane_norm_dir[0],
+        length_p*np.array([-1, 1])*plane_perp_dir[1] + plane_dist*plane_norm_dir[1],
+        label="Half Space Constraint", color='r', linewidth=2.
     )
-    
-    flag_trajectory_label = False
 
-# Add in constraints
-theta_p = np.linspace(0, 2.*np.pi)
-ax.plot(
-    circle_radius*np.cos(theta_p) + circle_center[0],
-    circle_radius*np.sin(theta_p) + circle_center[1],
-    color='k', label="Circle Constraint", linewidth=2.
-)
-
-length_p = 5.
-ax.plot(
-    length_p*np.array([-1, 1])*plane_perp_dir[0] + plane_dist*plane_norm_dir[0],
-    length_p*np.array([-1, 1])*plane_perp_dir[1] + plane_dist*plane_norm_dir[1],
-    label="Half Space Constraint", color='r', linewidth=2.
-)
-
-ax.legend(framealpha=1.)
-plt.show()
+    ax.legend(framealpha=1.)
+    plt.show()
     
 
-# Add in constraints
-theta_p = np.linspace(0, 2.*np.pi)
-ax.plot(
-    circle_radius*np.cos(theta_p) + circle_center[0],
-    circle_radius*np.sin(theta_p) + circle_center[1],
-    color='k', label="Circle Constraint", linewidth=2.
-)
+    # Add in constraints
+    theta_p = np.linspace(0, 2.*np.pi)
+    ax.plot(
+        circle_radius*np.cos(theta_p) + circle_center[0],
+        circle_radius*np.sin(theta_p) + circle_center[1],
+        color='k', label="Circle Constraint", linewidth=2.
+    )
 
-length_p = 5.
-ax.plot(
-    length_p*np.array([-1, 1])*plane_perp_dir[0] + plane_dist*plane_norm_dir[0],
-    length_p*np.array([-1, 1])*plane_perp_dir[1] + plane_dist*plane_norm_dir[1],
-    label="Half Space Constraint", color='r', linewidth=2.
-)
+    length_p = 5.
+    ax.plot(
+        length_p*np.array([-1, 1])*plane_perp_dir[0] + plane_dist*plane_norm_dir[0],
+        length_p*np.array([-1, 1])*plane_perp_dir[1] + plane_dist*plane_norm_dir[1],
+        label="Half Space Constraint", color='r', linewidth=2.
+    )
     

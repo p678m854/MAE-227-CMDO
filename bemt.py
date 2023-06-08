@@ -163,7 +163,7 @@ def calculate_blade_pitching_moment(
     dCmc4_dr = incremental_blade_quarter_chord_pitching_coefficient(
         r_vec, C_m_c4_alpha_vec, lambda_vec, theta_vec, sigma_vec, Nb
     )
-    return np.sum(dCmc4_dr*delta_r), dCMc4_dr
+    return np.sum(dCmc4_dr*delta_r_vec), dCmc4_dr
     
 
 def trim_blade_pitch(
@@ -213,8 +213,11 @@ def trim_blade_pitch(
     return theta_0
 
 
-def BEMTAnalysis:
-    """ Class to handle a BEMT analysis of a rotor blade for the MDO """
+class BEMTAnalysis:
+    """ Class to handle a BEMT analysis of a rotor blade for the MDO 
+
+    Only set up to handle a linear tapered blade
+    """
 
     update_profile_attributes = [
         'r_hub', 'n_elements'
@@ -271,19 +274,19 @@ def BEMTAnalysis:
     @r_hub.setter
     def r_hub(self, val):
         assert 0 <= val < 1, "Hub radius must be in [0, 1)."
-        self.__r_hub = r_hub
+        self.__r_hub = val
         if hasattr(self, "n_elements"):
             self.__delta_r = (1. - self.r_hub)/self.n_elements
-            self.__r_vec = np.arange(self.n_elements)*self.delta_r - 0.5*self.delta_r
+            self.__r_vec = np.arange(self.n_elements)*self.delta_r + 0.5*self.delta_r
             self.delta_r_vec = np.ones(self.n_elements)*self.delta_r
-        if all([hasattr(val, attr) for attr in self.recalc_attributes]):
+        if all([hasattr(val, attr) for attr in self.update_profile_attributes]):
             self.update_blade_profile(
-                getattr(self, "sigma_fun", None),
-                getattr(self, "theta_fun", None),
-                getattr(self, "C_l_alpha_fun", None),
-                getattr(self, "C_d_0_fun", None),
-                getattr(self, "d_1_fun", None),
-                getattr(self, "d_2_fun", None)
+                getattr(self, "sigma_func", None),
+                getattr(self, "theta_func", None),
+                getattr(self, "C_l_alpha_func", None),
+                getattr(self, "C_d_0_func", None),
+                getattr(self, "d_1_func", None),
+                getattr(self, "d_2_func", None)
             )
 
     @property
@@ -296,58 +299,59 @@ def BEMTAnalysis:
 
     @n_elements.setter
     def n_elements(self, val):
-        assert val > 0 "Must have positive number of elements"
+        assert val > 0, "Must have positive number of elements"
         self.__n_elements = val
         if hasattr(self, "r_hub"):
             self.__delta_r = (1. - self.r_hub)/self.n_elements
-            self.__r_vec = np.arange(n_elements)*self.delta_r - 0.5*self.delta_r
+            self.__r_vec = np.arange(self.n_elements)*self.delta_r + 0.5*self.delta_r
             self.delta_r_vec = np.ones(self.n_elements)*self.delta_r
-        if all([hasattr(val, attr) for attr in self.recalc_attributes]):
+        if all([hasattr(val, attr) for attr in self.update_profile_attributes]):
             self.update_blade_profile(
-                getattr(self, "sigma_fun", None),
-                getattr(self, "theta_fun", None),
-                getattr(self, "C_l_alpha_fun", None),
-                getattr(self, "C_d_0_fun", None),
-                getattr(self, "d_1_fun", None),
-                getattr(self, "d_2_fun", None)
+                getattr(self, "sigma_func", None),
+                getattr(self, "theta_func", None),
+                getattr(self, "C_l_alpha_func", None),
+                getattr(self, "C_d_0_func", None),
+                getattr(self, "d_1_func", None),
+                getattr(self, "d_2_func", None)
             )
 
     def update_blade_profile(
             self,
-            sigma_fun=None, theta_fun=None,
-            C_l_alpha_fun=None,
-            C_d_0_fun=None, d_1_fun=None, d_2_fun=None
+            **kargs
     ):
         """ Update the blade design 
 
-        All inputs are functions that that are single parameter functions based on r.
+        All inputs are key word arguments to functions that that are single parameter 
+        functions of r.
 
         Args:
-            sigma_fun (Callable) : Blade solidity profile
-            C_l_alpha_fun (Callable) : Blade lift slope curve
-            C_d_0_fun (Callable) : Parasitic drag coefficient or drag at zero angle of attack.
-            d_1_fun (Callable) : Linear drag coefficient parameter function.
-            d_2_fun (Callable) : Quadratic drag coefficient parameter function.
+            sigma_func (Callable) : Blade solidity profile
+            C_l_alpha_func (Callable) : Blade lift slope curve
+            C_d_0_func (Callable) : Parasitic drag coefficient or drag at zero angle of attack.
+            d_1_func (Callable) : Linear drag coefficient parameter function.
+            d_2_func (Callable) : Quadratic drag coefficient parameter function.
+            C_m_c4_alpha_func (callable) : Quarter chord pitching moment.
         """
 
-        if sigma_fun is not None:
-            self.sigma_fun = np.vectorize(sigma_fun, signature='()->()')
-            self.sigma_vec = self.sigma_fun(self.r_vec)
-        if theta_fun is not None:
-            self.thetafun = np.vectorize(theta_fun, signature='()->()')
-            self.theta_vec = self.theta_fun(self.r_vec)
-        if C_l_alpha_fun is not None:
-            self.C_l_alpha_fun = np.vectorize(c_l_alpha_fun, signature='()->()')
-            self.C_l_alpha_vec = self.c_l_alpha_fun(self.r_vec)
-        if C_d_0_fun is not None:
-            self.c_d_0_fun = np.vectorize(c_d_0_fun, signature='()->()')
-            self.c_d_0_vec = self.c_d_0_fun(self.r_vec)
-        if d_1_fun is not None:
-            self.d_1_fun = np.vectorize(d_1_fun, signature='()->()')
-            self.d_1_vec = self.d_1_fun(self.r_vec)
-        if d_2_fun is not None:
-            self.d_2_fun = np.vectorize(d_2_fun, signature='()->()')
-            self.d_2_vec = self.d_2_fun(self.r_vec)
+        properties = [
+            "sigma", 'theta',  # Designer blade decision variables
+            'C_l_alpha',  # Airfoil lift parameters
+            'C_d_0', 'd_1', 'd_2',  # Airfoil drag Parameters
+            'C_m_c4_alpha'  # Airfoil quarter chord pitching moment
+        ]
+        
+        for prop in properties:
+        
+            func_label = '{}_func'.format(prop)
+            vec_label = '{}_vec'.format(prop)
+
+            if func_label in kargs.keys():
+                setattr(
+                    self, func_label, np.vectorize(kargs[func_label], signature='()->()')
+                )
+                setattr(
+                    self, vec_label, getattr(self, func_label)(self.r_vec)
+                )
 
     def get_nondimensional_blade_performance(self):
         """ Gets the relavent nondimensional blade performance """
@@ -359,17 +363,19 @@ def BEMTAnalysis:
 
         C_P, dCP_dr = calculate_blade_power(
             self.r_vec, self.theta_vec, self.sigma_vec, self.delta_r_vec,
-            self.dCT_dr_vec, self.lambda_vec,
-            self.C_d_0_vec, self.d_1_vec, self.d_2_vec
+            dCT_dr, lambda_vec,
+            self.C_d_0_vec, self.d_1_vec, self.d_2_vec,
+            **self.func_kargs
         )
 
-        C_M_c4, dCmc4_dr = calculate_blade_pitching_moment(
+        C_m_c4, dCmc4_dr = calculate_blade_pitching_moment(
             self.r_vec, self.theta_vec, self.sigma_vec, self.delta_r_vec,
             lambda_vec,
-            self.C_m_c4_alpha_vec, self.Nb
+            self.C_m_c4_alpha_vec, self.Nb,
+            **self.func_kargs
         )
 
-        return C_T, C_P, dCT_dr, dCP_dr, dCMc4_cr, lambda_vec
+        return C_T, C_P, dCT_dr, dCP_dr, dCmc4_dr, lambda_vec
             
     
 if __name__=="__main__":

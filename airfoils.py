@@ -22,34 +22,80 @@ class NACA4Series:
     e = -0.1015  # x^4
 
     # Some airfoil coefficient parameters. :: NOTE :: simply linear at the moment
+    # Estimating from airfoiltools.com using Re=1e6 for NACA 00XX
+    __t_vec = np.array([6., 8., 9., 10., 12., 15., 18., 21., 24.])/100.  # Percent thickness chord
+    __alpha_max = np.array([9., 13.5, 14.250, 15., 16.5, 17.25, 17.75, 17.75, 18.0])
+    __cd0 = np.array([
+        0.00531, 0.00543, 0.00574, 0.006, 0.00662, 0.00739, 0.00808, 0.00878, 0.00947
+    ])
+    __d2 = 2.*1e-2*np.power(
+        np.array([7.750, 9.5, 10., 10.75, 11.25, 12., 12.25, 12.5, 12.25])/180.*np.pi,
+        -2.
+    )
+    
+    
     @classmethod
-    def c_l_alpha(t):
-        """ 2D lift slope curve """
-        pass
+    def c_l_alpha(cls, t):
+        """ 2D lift curve linear slope in per radians.
+
+        Just assumes a constant lift slope curve for all airfoils
+        """
+        return 5.74
 
     @classmethod
-    def c_d_0(t):
+    def c_d_0(cls, t):
         """ 2D zero angle of attack drag """
-        pass
+        return 0.00525 + 0.00026*np.log(1 + np.exp((t - 0.07)/0.01))
 
     @classmethod
-    def c_m_c4_alpha(t):
+    def d_1(cls, t):
+        """ Linear term in quadratic drag model """
+        return 0.
+    
+    @classmethod
+    def d_2(cls, t):
+        """ Quadratic term in quadratic drag model """
+        return 0.43 + 1.65/(1 + np.exp(38.*(t - 0.04)))
+    
+    @classmethod
+    def c_m_c4_alpha(cls, t):
         """ 2D pitching moment coefficient """
         return 0. 
 
     @classmethod
+    def alpha_max(cls, t):
+        """ Maximum angle of attack before onset of stall """
+        return 18.*np.power(1. + np.exp(-33.3*(t - 0.5)), -1.)
+    
+    @classmethod
     def y_u_unit_chord(cls, x, t):
         return 5.*t*(cls.a*np.sqrt(x) + cls.b*x + cls.c*x*x + cls.d*x*x*x + cls.e*x*x*x*x)
 
+    @classmethod
+    def yp_u_unit_chord(cls, x, t):
+        """ Derivative of upper surface """
+        return 5.*t*(
+            cls.a*0.5*np.power(x, -0.5) + cls.b + 2.*cls.c*x + 3.*cls.d*x*x + 4.*cls.e*x*x*x
+        )
+    @classmethod
+    def ypp_u_unit_chord(cls, x, t):
+        """ Second Derivative of upper surface """
+        return 5.*t*(
+            -cls.a*0.25*np.power(x, -1.5) + 2.*cls.c + 6.*cls.d*x + 12.*cls.e*x*x
+        )
+    
     @classmethod
     def y_l_unit_chord(cls, x, t):
         return -5.*t*(cls.a*np.sqrt(x) + cls.b*x + cls.c*x*x + cls.d*x*x*x + cls.e*x*x*x*x)
 
     @classmethod
     def curvature_unit_chord(cls, x, t):
-        return 5.*t*(
-            cls.a*(-0.25)*np.power(x, -3./2.) + 2.*cls.c + 6.*cls.d*x + 12.*cls.e*x*x
-        )
+        if x > 0:
+            yp = cls.yp_u_unit_chord(x, t)
+            ypp = cls.ypp_u_unit_chord(x, t)
+            return max(1.1019*t*t, np.abs(np.power(1 + yp*yp, 1.5)/ypp))
+        else:
+            return 1.1019*t*t
     
     def __init__(self, t):
         """
@@ -84,8 +130,8 @@ class NACA4Series:
     
     @t.setter
     def t(self, val):
-        assert 0.06 <= t <= 0.2, (
-            "NACA 4-series symmetric airfiols between 6 and 20 percent chord thickness."
+        assert 0.06 <= val <= 0.24, (
+            "NACA 4-series symmetric airfiols between 6 and 24 percent chord thickness."
         )
         self.__t = val
         if hasattr(self, '_unit_chord_area'):
@@ -185,8 +231,8 @@ class NACA4Series:
 
     def J_skin(self, c, t_skin):
         c_i = c - 2.*t_skin
-        x_o = self.x_area_center(c)
-        x_i = self.x_area_center(c_i) + t_skin
+        x_o = self.x_center_area(c)
+        x_i = self.x_center_area(c_i) + t_skin
         x_s = self.x_skin_area_center(c, t_skin)
 
         return (
@@ -216,3 +262,7 @@ class NACA4Series:
     def center_maxt(self,c):
         """ distance from center of area to point of maximum thickness along the x axis """
         return c*(self._unit_chord_x_area-0.3)
+
+    # Defining some python manipulations
+    def __str__(self):
+        return "NACA 00{:0>2.0f}".format(self.t*100)
