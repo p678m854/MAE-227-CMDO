@@ -1,7 +1,9 @@
 #!/usr/bin/python3
 
 """
-Brief: Blade Element Momentum Theory Code
+Date: June 14, 2023
+Brief: Blade Element Momentum Theory Code. Follows along closely with Chapter 3 of
+       Leishman's Principle of Helicopter Aerodynamics.
 """
 
 
@@ -12,12 +14,14 @@ import numpy as np
 def prandtl_f_function(
     r_t, r_b, phi_vec, Nb
 ):
+    """ Inner function to a tip correction factor """
     f = Nb/2.*np.divide(r_t, (r_b*phi_vec), out=np.zeros(r_t.shape), where=(r_b > 0))
     f = np.where(r_b > 0, f, np.inf)
     return f
     
 
 def prandtl_correction_factor(r_vec, phi_vec, Nb, r_hub=0., flag_root_effects=False):
+    """ Prandtl correction factor in inflow equation for tip effects """
     r_t = 1. - r_vec
     r_b = r_vec - r_hub
     f_tip = prandtl_f_function(r_t, r_b, phi_vec, Nb)
@@ -87,7 +91,8 @@ def incremental_2D_lift_coefficient(r_vec, theta_vec, lambda_vec, C_l_alpha_vec)
 def incremental_blade_quarter_chord_pitching_coefficient(
         r_vec, C_m_c4_alpha_vec, lambda_vec, theta_vec, sigma_vec, Nb
 ):
-    """
+    """ Pitching moment of the blade.
+
         d M_x_{c/4} = (1/2*rho*V**2)*(c**2)*(c_{m_{c/4_{\alpha}}} \alpha)
         nondimensionalize by (rho*A*V_tip**2*R)
     """
@@ -99,7 +104,24 @@ def calculate_blade_thrust(
     lambda_c=0., flag_tip_effects=False, Nb=2, r_hub=0.,
     **kargs
 ):
+    """ Calculate blade thrust
+    
+    Args:
+        r_vec : Vector of nondimensional radius to evaluate at.
+        theta_vec : Vector of pitch angles at r_vec
+        C_l_alpha_vec : Airfoil 2D lift curve slope.
+        sigma_vec : Vecotr of rotor solidity.
+        delta_r_vec : Vector of length of blade elements.
+        lambda_c : Nondimensional climb velocity
+        flag_tip_effects : Flag to include tip effect losses
+        Nb : Number of blades
+        r_hub : the starting radius station of the blade.
 
+    Returns:
+        C_T : Total thrust coefficient
+        dCT_dr : Thrust gradient along r_vec
+        lambda_vec : Inflow along r_vec
+    """
     # Set up loop flag
     flag_no_convergence = True
     
@@ -147,6 +169,23 @@ def calculate_blade_power(
     r_vec, theta_vec, sigma_vec, delta_r_vec, dCT_dr_vec, lambda_vec,
     C_d_0_vec, d_1_vec, d_2_vec, **kargs
 ):
+    """ Calculate blade power based on airfoil drag profile
+    
+    Args:
+        r_vec : Vector of nondimensional radius to evaluate at.
+        theta_vec : Vector of pitch angles at r_vec
+        sigma_vec : Vecotr of rotor solidity.
+        delta_r_vec : Vector of length of blade elements.
+        dCT_dr : Thrust gradient along r_vec
+        lambda_vec : Inflow along r_vec
+        C_d_0_vec : Airfoil zero angle of attack drag
+        d_1_vec : Airfoil drag linear term
+        d_2_vec : Airfoil drag quadratic term
+
+    Returns:
+        C_P : Total nondimensional power coefficient.
+        dCP_dr_vec : Power coefficent gradient along r_vec.
+    """
     # Find power from inflow and thrust
     dCPi_dr_vec = incremental_induced_nondimensional_power_coefficient(lambda_vec, dCT_dr_vec)
     dCP0_dr_vec = incremental_profile_nondimensional_power_coefficient(
@@ -159,9 +198,25 @@ def calculate_blade_power(
 
     return C_P, dCP_dr_vec
 
+
 def calculate_blade_pitching_moment(
         r_vec, theta_vec, sigma_vec, delta_r_vec, lambda_vec, C_m_c4_alpha_vec, Nb, **kargs
 ):
+    """ Calculate blade pitching momemnt based on airfoil drag profile
+    
+    Args:
+        r_vec : Vector of nondimensional radius to evaluate at.
+        theta_vec : Vector of pitch angles at r_vec
+        sigma_vec : Vecotr of rotor solidity.
+        delta_r_vec : Vector of length of blade elements.
+        lambda_vec : Inflow along r_vec
+        C_m_c4_alpha_vec : Airfoil angle of attack pitching coefficient
+        Nb : number of blades.
+
+    Returns:
+        C_m_c4 : Total nondimensional pitching coefficient
+        dCmc4_dr : Pitching moment coefficient gradient
+    """
     dCmc4_dr = incremental_blade_quarter_chord_pitching_coefficient(
         r_vec, C_m_c4_alpha_vec, lambda_vec, theta_vec, sigma_vec, Nb
     )
@@ -172,6 +227,26 @@ def trim_blade_pitch(
     C_T_required, r_vec, theta_rel_vec, C_l_alpha_vec, sigma_vec, delta_r_vec,
     lambda_c=0., flag_tip_effects=False, Nb=2, r_hub=0., tol=1e-7, max_iter=1000, verbose=0
 ):
+    """ Determine the root pitch angle to trim the helicopter blade
+    
+    Args:
+        C_T_required : Thrust coefficient required
+        r_vec : Vector of nondimensional radius to evaluate at.
+        theta_rel_vec : Vector of relative pitch angles
+        C_l_alpha_vec : Airfoil 2D lift curve slope.
+        sigma_vec : Vecotr of rotor solidity.
+        delta_r_vec : Vector of length of blade elements.
+        lambda_c : Nondimensional climb velocity
+        flag_tip_effects : Flag to include tip effect losses
+        Nb : Number of blades
+        r_hub : the starting radius station of the blade.
+        tol : Convergence tolerance for thrust coefficient
+        max_iter : maximum number of iterations
+        verbose : Verbosity level of the solution
+
+    Returns:
+        theta_0 : Hub blade pitch angle
+    """
 
     # Some representative values for quick numerics
     sigma_rep = np.median(sigma_vec)

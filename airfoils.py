@@ -1,6 +1,9 @@
 #!/usr/bin/python3
 
 """
+Date: June 14, 2023
+Brief: File that handles both the aerodynamic and structural properties of NACA
+       4-series symmetric airfoils.
 """
 
 import numpy as np
@@ -126,6 +129,7 @@ class NACA4Series:
 
     @property
     def t(self):
+        """ Airfoil thickness in percent chord """
         return self.__t
     
     @t.setter
@@ -180,31 +184,38 @@ class NACA4Series:
         return self.__unit_chord_Ixx(t) + self.__unit_chord_Iyy(t)
     
     
-    # The real airfoil with hollow interior
+    # The real airfoil with hollow interior, given a chord length of c
     # Assumption: cutouts have the same profile as outer moldline
         
     def A(self, c):
+        """ Area of area in dimensional units """
         return c*c*self._unit_chord_area
 
     def x_center_area(self, c):
+        """ X-position for center of area in airfoil coordinates"""
         return c*self._unit_chord_x_area
     
     def A_skin(self, c, t_skin):
+        """ Area of material in a hollowed out airfoil"""
         return self.A(c) - self.A(c - 2.*t_skin)
         
     def x_skin_area_center(self, c, t_skin):
+        """ Hollowed airfoil X-position of center of area"""
         return (
             self.x_center_area(c)*self.A(c)
             - (t_skin + self.x_center_area(c - 2.*t_skin))*self.A(c - 2.*t_skin)
         )/self.A_skin(c, t_skin)
 
     def Ixx(self, c):
+        """ Moment of inertia about X-axis """
         return c*c*c*c*self._unit_chord_Ixx
 
     def Iyy(self, c):
+        """ Moment of inertia about Y-axis """
         return c*c*c*c*self._unit_chord_Iyy
     
     def Iyy_skin(self, c, t_skin):
+        """ Moment of inertia about X-axis for hollow airfoi """
         # Get parameters of outer and inner to establish
         c_i = c - 2.*t_skin
         x_o = self.x_center_area(c)
@@ -220,16 +231,16 @@ class NACA4Series:
         # Return Corrected
         return Iyy_0 - x_s*x_s*A_s
 
-    def Ixx(self, c):
-        return c*c*c*c*self._unit_chord_Ixx
-
     def Ixx_skin(self, c, t_skin):
+        """ Moment of inertia about X-axis for hollow airfoi """
         return self.Ixx(c) - self.Ixx(c - 2.*t_skin)
 
     def J(self, c):
+        """ Polar moment of inertia """
         return c*c*c*c*self._unit_chord_J
 
     def J_skin(self, c, t_skin):
+        """ Polar moment of inertia for hollow airfoi """
         c_i = c - 2.*t_skin
         x_o = self.x_center_area(c)
         x_i = self.x_center_area(c_i) + t_skin
@@ -241,9 +252,11 @@ class NACA4Series:
         )
 
     def t_max(self, c):
+        """ Max thickness of airfoil """
         return self.t*c
 
     def diameter_max_inscribed_circle(self, c, t):
+        """ Maximum diameter of incribed circle in airfoil """
         return 2.*c*t
 
     def curvature(self, x, c):
